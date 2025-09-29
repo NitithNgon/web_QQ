@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Queue Display - Queue Management</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <div class="queue-display">
+            <h1>Current Queue</h1>
+            <div class="queue-number" id="displayQueueNumber">0</div>
+            <div class="queue-status" id="queueStatus">No active queue</div>
+            
+            <div class="queue-info-display">
+                <p>Total Queues: <span id="displayTotalQueues">0</span></p>
+                <p>Queues Served: <span id="displayServedQueues">0</span></p>
+                <p>Remaining: <span id="displayRemainingQueues">0</span></p>
+            </div>
+
+            <button id="refreshBtn" class="btn btn-secondary">Refresh</button>
+        </div>
+
+        <div class="navigation">
+            <a href="index.html" class="nav-btn">Home</a>
+            <a href="distributor.html" class="nav-btn">Distributor Panel</a>
+        </div>
+    </div>
+
+    <script src="simple-backup.js"></script>
+    <script src="queue-display.js"></script>
+</body>
+</html>

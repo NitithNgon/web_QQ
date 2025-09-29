@@ -1,0 +1,32 @@
+{
+  "name": "queue-management-system",
+  "version": "1.0.0",
+  "description": "A web-based queue management system with JSON database persistence",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "backup": "node -e \"console.log('Manual backup created'); require('./server.js');\"",
+    "test": "echo \"No tests specified\" && exit 0"
+  },
+  "keywords": [
+    "queue",
+    "management",
+    "qr-code",
+    "database",
+    "json",
+    "web-app"
+  ],
+  "author": "Queue Management System",
+  "license": "MIT",
+  "engines": {
+    "node": ">=12.0.0"
+  },
+  "dependencies": {},
+  "devDependencies": {},
+  "repository": {
+    "type": "git",
+    "url": "."
+  },
+  "homepage": "."
+}
