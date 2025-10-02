@@ -3,16 +3,43 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Queue Management System</title>
+    <title>Queue Management System - Login</title>
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
     <div class="container">
-        <h1>Queue Management System</h1>
-        <div class="navigation">
-            <a href="distributor.html" class="nav-btn">Distributor Queue</a>
-            <a href="queue-display.html" class="nav-btn">Queue Display</a>
+        <div class="login-container">
+            <h1>Queue Management System</h1>
+            <div class="queue-info">
+                <h3>Enter queue name and password to access distributor</h3>
+                <form id="loginForm" class="login-form">
+                    <div class="input-group">
+                        <label for="queueName">Queue Name:</label>
+                        <input type="text" id="queueName" name="queueName" required 
+                            placeholder="Enter queue name (e.g., Hospital-A, Clinic-1)" 
+                            minlength="3" maxlength="50">
+                    </div>
+                    
+                    <div class="input-group">
+                        <label for="password">Password:</label>
+                        <input type="password" id="password" name="password" required 
+                            placeholder="Enter password (4-20 characters)" 
+                            minlength="4" maxlength="20">
+                    </div>
+                    
+                    <div class="button-group">
+                        <button type="submit" class="btn btn-primary">Login / Create Queue</button>
+                    </div>
+                </form>
+            </div>
+            
+            
+            <div id="loginMessage" class="message" style="display: none;"></div>
+            
         </div>
     </div>
+
+    <script src="simple-backup.js"></script>
+    <script src="login.js"></script>
 </body>
 </html>

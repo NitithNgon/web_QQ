@@ -4,6 +4,7 @@ class QueueManager {
         this.currentQueue = 0;
         this.totalQueues = 0;
         this.callingQueue = 0;
+        this.queueName = 'Test Queue';
         this.backup = null;
         this.initializeBackup();
     }
@@ -31,6 +32,7 @@ class QueueManager {
             this.currentQueue = status.currentQueue;
             this.totalQueues = status.totalQueues;
             this.callingQueue = status.callingQueue
+            this.queueName = status.queueName
             if (this.currentQueue > 0) {
                 this.generateQRCode();
             }
@@ -42,15 +44,24 @@ class QueueManager {
         document.getElementById('newQueueBtn').addEventListener('click', () => {
             this.generateNewQueue();
         });
-
-        document.getElementById('callQueueBtn').addEventListener('click', () => {
-            this.callNextQueue();
-        });
+        
+        const callQueueBtn = document.getElementById('callQueueBtn');
+        if (callQueueBtn) {
+            callQueueBtn.addEventListener('click', () => {
+                this.callNextQueue();
+            });
+        }
 
         document.getElementById('resetBtn').addEventListener('click', () => {
             this.resetAllQueues();
         });
 
+        // Delete current queue only
+        document.getElementById('deleteAllBtn').addEventListener('click', () => {
+            console.log('Delete current queue button clicked');
+            this.deleteCurrentQueue();
+        });
+        
         document.getElementById('printBtn').addEventListener('click', () => {
             this.printQRCode();
         });
@@ -136,9 +147,152 @@ class QueueManager {
             }
         }
     }
+    
+    // Delete current queue and associated data
+    async deleteCurrentQueue() {
+        if (confirm(`Are you sure you want to delete queue "${this.queueName}"? This will remove it from the system and log you out.`)) {
+            try {
+                console.log('Starting delete current queue process...');
+                
+                // Delete backup file from server
+                console.log(`Deleting backup file for queue: ${this.queueName}`);
+                await this.deleteQueueBackupFile(this.queueName);
+                
+                // Remove queue from authentication file (not delete entire file)
+                console.log('Removing queue from authentication file...');
+                await this.deleteAuthFile(); // This now removes just this queue
+                
+                // Clear browser storage for this queue
+                console.log('Clearing browser storage for this queue...');
+                localStorage.removeItem(`queueBackup_${this.queueName}`);
+                localStorage.removeItem('queueAuth'); // Will be reloaded for remaining queues
+                sessionStorage.clear();
+                
+                // Show success message and redirect
+                this.showNotification(`Queue "${this.queueName}" deleted successfully! Redirecting to login...`, 'success');
+                
+                // Redirect to login page after 2 seconds
+                setTimeout(() => {
+                    window.location.href = 'index.html';
+                }, 2000);
+                
+            } catch (error) {
+                console.error('Failed to delete current queue:', error);
+                this.showNotification('Failed to delete queue: ' + error.message, 'error');
+            }
+        }
+    }
+    
+    // Delete queue backup file from server
+    async deleteQueueBackupFile(queueName) {
+        try {
+            // Encode the queue name for URL
+            const encodedQueueName = encodeURIComponent(queueName);
+            console.log(`Requesting server to delete backup file for: ${queueName} (encoded: ${encodedQueueName})`);
+            
+            const response = await fetch(`/api/delete-queue-backup/${encodedQueueName}`, {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            
+            console.log('Delete response status:', response.status);
+            console.log('Delete response headers:', response.headers.get('content-type'));
+            
+            if (response.ok) {
+                const result = await response.json();
+                console.log('✅ Queue backup file deleted:', result.message);
+            } else {
+                // Try to get error as text first, then parse as JSON
+                const responseText = await response.text();
+                console.log('Raw response:', responseText);
+                
+                try {
+                    const errorData = JSON.parse(responseText);
+                    console.warn('⚠️ Server delete warning:', errorData.error);
+                } catch {
+                    console.error('❌ Server returned non-JSON response:', responseText);
+                    throw new Error('Server returned invalid response');
+                }
+            }
+        } catch (error) {
+            console.error('❌ Network error deleting backup file:', error);
+            throw error;
+        }
+    }
+
+    // Delete authentication file from server (remove specific queue)
+    async deleteAuthFile() {
+        try {
+            console.log(`🗑️ Requesting removal of queue "${this.queueName}" from auth file`);
+            
+            const requestBody = { queueName: this.queueName };
+            console.log('📤 Request body:', JSON.stringify(requestBody));
+            
+            const response = await fetch('/api/delete-queue-auth', {
+                method: 'DELETE',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify(requestBody)
+            });
+            
+            console.log('📡 Response status:', response.status);
+            console.log('📡 Response content-type:', response.headers.get('content-type'));
+            
+            // Check if response is JSON
+            const contentType = response.headers.get('content-type');
+            if (!contentType || !contentType.includes('application/json')) {
+                const responseText = await response.text();
+                console.error('❌ Server returned non-JSON response:', responseText.substring(0, 200));
+                throw new Error('Server returned HTML instead of JSON - check server routing');
+            }
+            
+            const responseText = await response.text();
+            console.log('📡 Raw response:', responseText);
+            
+            if (response.ok) {
+                const result = JSON.parse(responseText);
+                console.log('✅ Queue removed from auth file:', result.message);
+            } else {
+                const errorData = JSON.parse(responseText);
+                console.warn('⚠️ Server delete warning:', errorData.error);
+                throw new Error(errorData.error);
+            }
+        } catch (error) {
+            console.error('❌ Error removing queue from auth file:', error);
+            throw error;
+        }
+    }
+
+    // Clear browser storage (keep this as backup)
+    clearLocalStorage() {
+        // Get all localStorage keys that start with 'queueBackup_'
+        const keysToDelete = [];
+        for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key && (key.startsWith('queueBackup_') || key === 'queueAuth')) {
+                keysToDelete.push(key);
+            }
+        }
+        
+        console.log('Clearing browser storage keys:', keysToDelete);
+        
+        // Delete all queue-related data from browser
+        keysToDelete.forEach(key => {
+            localStorage.removeItem(key);
+            console.log(`Cleared browser storage: ${key}`);
+        });
+        
+        // Clear session storage
+        sessionStorage.clear();
+        
+        console.log('All browser storage cleared');
+    }
 
     // Update display elements
     updateDisplay() {
+        document.getElementById('queueName').textContent = this.queueName;
         document.getElementById('currentQueue').textContent = this.currentQueue;
         document.getElementById('callingQueue').textContent = this.callingQueue;
         document.getElementById('totalQueues').textContent = this.totalQueues;
@@ -325,7 +479,7 @@ class QueueManager {
             </head>
             <body>
                 <div class="print-header">
-                    <h1>Queue Management System</h1>
+                    <h1>${this.queueName}</h1>
                     <p>Date: ${currentDate} | Time: ${currentTime}</p>
                 </div>
                 <div class="queue-info">
@@ -418,6 +572,8 @@ class QueueManager {
             }, 300);
         }, 3000);
     }
+
+    // New method: Delete only current queue
 }
 
 // Initialize the queue manager when the page loads

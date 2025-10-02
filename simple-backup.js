@@ -1,16 +1,35 @@
-// Simple Queue Backup System
+// Simple Queue Backup System with Queue Name Support
 class SimpleQueueBackup {
-    constructor() {
-        this.backupFile = 'queue-backup.json';
+    constructor(queueName = null) {
+        this.queueName = queueName || this.getCurrentQueueFromSession();
+        this.backupFile = `queue-backup-${this.queueName}.json`;
         this.data = this.getDefaultData();
-        this.init();
+    }
+
+    // Get current queue name from session or URL
+    getCurrentQueueFromSession() {
+        // Try to get from URL parameters first
+        const urlParams = new URLSearchParams(window.location.search);
+        const queueFromUrl = urlParams.get('queue');
+        if (queueFromUrl) {
+            return queueFromUrl;
+        }
+
+        // Try to get from session storage
+        const queueFromSession = sessionStorage.getItem('currentQueue');
+        if (queueFromSession) {
+            return queueFromSession;
+        }
+
+        // Default fallback
+        return 'default';
     }
 
     // Initialize and load existing backup
     async init() {
         try {
             await this.loadBackup();
-            console.log('Backup system initialized');
+            console.log(`Backup system initialized for queue: ${this.queueName}`);
         } catch (error) {
             console.log('No existing backup found, starting fresh');
             await this.saveBackup();
@@ -20,6 +39,7 @@ class SimpleQueueBackup {
     // Get default data structure
     getDefaultData() {
         return {
+            queueName: this.queueName,
             currentQueue: 0,
             totalQueues: 0,
             callingQueue: 0,
@@ -30,19 +50,8 @@ class SimpleQueueBackup {
 
     // Load backup from JSON file
     async loadBackup() {
-        try {
-            // Try to fetch from server first
-            const response = await fetch(this.backupFile);
-            if (response.ok) {
-                this.data = await response.json();
-                return;
-            }
-        } catch (error) {
-            console.log('Server not available, checking localStorage');
-        }
-
-        // Fallback to localStorage
-        const localData = localStorage.getItem('queueBackup');
+        // Fallback to localStorage with queue-specific key
+        const localData = localStorage.getItem(`queueBackup_${this.queueName}`);
         if (localData) {
             this.data = JSON.parse(localData);
         }
@@ -51,19 +60,23 @@ class SimpleQueueBackup {
     // Save backup to both server and localStorage
     async saveBackup() {
         this.data.lastUpdated = new Date().toISOString();
+        this.data.queueName = this.queueName;
         const jsonData = JSON.stringify(this.data, null, 2);
 
-        // Always save to localStorage
-        localStorage.setItem('queueBackup', jsonData);
+        // Always save to localStorage with queue-specific key
+        localStorage.setItem(`queueBackup_${this.queueName}`, jsonData);
 
         // Try to save to server
         try {
-            await fetch('/api/save-backup', {
+            await fetch('/api/save-queue-backup', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: jsonData
+                body: JSON.stringify({
+                    queueName: this.queueName,
+                    data: this.data
+                })
             });
-            console.log('Backup saved to server');
+            console.log(`Backup saved to server for queue: ${this.queueName}`);
         } catch (error) {
             console.log('Server save failed, using localStorage only');
         }
@@ -80,19 +93,19 @@ class SimpleQueueBackup {
 
         this.data.queues.push(queue);
         this.data.currentQueue = queueNumber;
-        this.data.totalQueues++;
+        this.data.totalQueues = this.data.queues.filter(q => !q.served).length;
 
         await this.saveBackup();
         return queue;
     }
 
-    // end queue and save backup
+    // End queue and save backup
     async endQueue(queueNumber) {
         const queue = this.data.queues.find(q => q.number === queueNumber && !q.served);
         if (queue) {
             queue.served = true;
             this.data.callingQueue = queueNumber;
-            this.data.totalQueues--;
+            this.data.totalQueues = this.data.queues.filter(q => !q.served).length;
         }
 
         await this.saveBackup();
@@ -108,11 +121,42 @@ class SimpleQueueBackup {
     // Get current status
     getCurrentStatus() {
         return {
+            queueName: this.queueName,
             currentQueue: this.data.currentQueue,
             totalQueues: this.data.totalQueues,
-            lastUpdated: this.data.lastUpdated,
             callingQueue: this.data.callingQueue,
+            lastUpdated: this.data.lastUpdated
         };
+    }
+
+    // Delete all data - add this method to SimpleQueueBackup class
+    async deleteAllData() {
+        try {
+            console.log(`Attempting to delete backup from server for queue: ${this.queueName}`);
+            const response = await fetch(`/api/delete-queue-backup/${this.queueName}`, {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            
+            if (response.ok) {
+                const result = await response.json();
+                console.log('Server backup delete response:', result);
+            } else {
+                console.warn('Server backup delete failed with status:', response.status);
+                const errorText = await response.text();
+                console.warn('Error details:', errorText);
+            }
+        } catch (error) {
+            console.error('Network error during server backup delete:', error);
+        }
+        
+        // Always clear from localStorage regardless of server response
+        console.log(`Clearing localStorage backup for queue: ${this.queueName}`);
+        localStorage.removeItem(`queueBackup_${this.queueName}`);
+        console.log(`Local backup cleared for queue: ${this.queueName}`);
+        
+        // Reset data to default
+        this.data = this.getDefaultData();
     }
 }
 
