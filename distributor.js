@@ -34,8 +34,8 @@ class QueueManager {
 
     // Initialize event listeners
     initializeEventListeners() {
-        document.getElementById('nextQueueBtn').addEventListener('click', () => {
-            this.generateNextQueue();
+        document.getElementById('newQueueBtn').addEventListener('click', () => {
+            this.generateNewQueue();
         });
 
         document.getElementById('resetBtn').addEventListener('click', () => {
@@ -47,15 +47,15 @@ class QueueManager {
         });
     }
 
-    // Generate next queue number
-    async generateNextQueue() {
+    // Generate new queue number
+    async generateNewQueue() {
         // Prevent multiple rapid clicks
-        const nextQueueBtn = document.getElementById('nextQueueBtn');
-        if (nextQueueBtn.disabled) return;
-        
-        nextQueueBtn.disabled = true;
-        nextQueueBtn.textContent = 'Generating...';
-        
+        const newQueueBtn = document.getElementById('newQueueBtn');
+        if (newQueueBtn.disabled) return;
+
+        newQueueBtn.disabled = true;
+        newQueueBtn.textContent = 'Generating...';
+
         try {
             // Increment queue numbers
             const newQueueNumber = this.currentQueue + 1;
@@ -84,8 +84,8 @@ class QueueManager {
         } finally {
             // Re-enable button
             setTimeout(() => {
-                nextQueueBtn.disabled = false;
-                nextQueueBtn.textContent = 'Next Queue';
+                newQueueBtn.disabled = false;
+                newQueueBtn.textContent = 'New Queue';
             }, 500);
         }
     }
