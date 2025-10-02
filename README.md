@@ -5,7 +5,6 @@ A web-based queue management system with JSON database persistence that allows d
 ## 🚀 New Database Features
 
 ### JSON Database System
-- **Persistent Storage**: All queue data is stored in `queue-database.json`
 - **Automatic Backup**: Creates backup files every 30 seconds
 - **Data Recovery**: Automatically loads data when server restarts
 - **Export/Import**: Manual database export and import functionality
@@ -74,7 +73,6 @@ web_QQ/
 
 ## Technical Features
 
-- **JSON Database**: Primary storage in `queue-database.json` file
 - **Dual Storage**: Falls back to localStorage if server is unavailable  
 - **Auto-Backup System**: Creates timestamped backup files automatically
 - **Data Recovery**: Loads previous session data on startup
@@ -136,7 +134,6 @@ web_QQ/
 ├── server.js              # Node.js server for database persistence
 ├── package.json           # Node.js project configuration
 ├── start-server.bat       # Windows batch file to start server
-├── queue-database.json    # Main database file (auto-created)
 ├── backups/               # Automatic backup files (auto-created)
 └── README.md             # This file
 ```

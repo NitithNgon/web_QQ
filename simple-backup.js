@@ -22,6 +22,7 @@ class SimpleQueueBackup {
         return {
             currentQueue: 0,
             totalQueues: 0,
+            callingQueue: 0,
             lastUpdated: new Date().toISOString(),
             queues: []
         };
@@ -79,7 +80,20 @@ class SimpleQueueBackup {
 
         this.data.queues.push(queue);
         this.data.currentQueue = queueNumber;
-        this.data.totalQueues = this.data.queues.length; // Ensure accurate count
+        this.data.totalQueues++;
+
+        await this.saveBackup();
+        return queue;
+    }
+
+    // end queue and save backup
+    async endQueue(queueNumber) {
+        const queue = this.data.queues.find(q => q.number === queueNumber && !q.served);
+        if (queue) {
+            queue.served = true;
+            this.data.callingQueue = queueNumber;
+            this.data.totalQueues--;
+        }
 
         await this.saveBackup();
         return queue;
@@ -96,7 +110,8 @@ class SimpleQueueBackup {
         return {
             currentQueue: this.data.currentQueue,
             totalQueues: this.data.totalQueues,
-            lastUpdated: this.data.lastUpdated
+            lastUpdated: this.data.lastUpdated,
+            callingQueue: this.data.callingQueue,
         };
     }
 }

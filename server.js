@@ -28,6 +28,7 @@ class QueueServer {
         const initialData = {
             currentQueue: 0,
             totalQueues: 0,
+            callingQueue: 0,
             lastUpdated: new Date().toISOString(),
             queues: []
         };

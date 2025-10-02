@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Distributor Queue - Queue Management</title>
     <link rel="stylesheet" href="styles.css">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode/1.5.3/qrcode.min.js"></script>
 </head>
 <body>
     <div class="container">
@@ -13,19 +12,20 @@
         
         <div class="controls">
             <button id="newQueueBtn" class="btn btn-primary">New Queue</button>
+            <button id="callQueueBtn" class="btn btn-secondary">Call Queue</button>
             <button id="resetBtn" class="btn btn-danger">Reset All Queues</button>
         </div>
 
         <div class="queue-info">
             <h2>Current Queue Number: <span id="currentQueue">0</span></h2>
-            <h3>Total Queues Generated: <span id="totalQueues">0</span></h3>
+            <h3>Calling Queue Number: <span id="callingQueue">0</span></h3>
+            <h3>Total Queues Remaining: <span id="totalQueues">0</span></h3>
         </div>
 
         <div class="qr-section" id="qrSection" style="display: none;">
-            <h3>QR Code for Patient</h3>
+            <h3>QR Code</h3>
             <div id="qrcode"></div>
             <button id="printBtn" class="btn btn-secondary">Print QR Code</button>
-            <p class="instruction">Give this QR code to the patient to scan and view their queue status</p>
         </div>
 
         <div class="navigation">
@@ -34,6 +34,8 @@
         </div>
     </div>
 
+    <!-- Load QRCode library (qrcodejs) -->
+    <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
     <script src="simple-backup.js"></script>
     <script src="distributor.js"></script>
 </body>

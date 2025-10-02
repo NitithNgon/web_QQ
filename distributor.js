@@ -3,6 +3,7 @@ class QueueManager {
     constructor() {
         this.currentQueue = 0;
         this.totalQueues = 0;
+        this.callingQueue = 0;
         this.backup = null;
         this.initializeBackup();
     }
@@ -29,6 +30,10 @@ class QueueManager {
             const status = this.backup.getCurrentStatus();
             this.currentQueue = status.currentQueue;
             this.totalQueues = status.totalQueues;
+            this.callingQueue = status.callingQueue
+            if (this.currentQueue > 0) {
+                this.generateQRCode();
+            }
         }
     }
 
@@ -36,6 +41,10 @@ class QueueManager {
     initializeEventListeners() {
         document.getElementById('newQueueBtn').addEventListener('click', () => {
             this.generateNewQueue();
+        });
+
+        document.getElementById('callQueueBtn').addEventListener('click', () => {
+            this.callNextQueue();
         });
 
         document.getElementById('resetBtn').addEventListener('click', () => {
@@ -74,7 +83,7 @@ class QueueManager {
             }
             
             this.updateDisplay();
-            this.generateQRCode();
+            // this.generateQRCode();
             
             // Show success message
             this.showNotification(`Queue ${this.currentQueue} generated and backed up!`, 'success');
@@ -90,6 +99,22 @@ class QueueManager {
         }
     }
 
+    // Call next queue number
+    async callNextQueue() {
+        if (this.callingQueue >= this.currentQueue) {
+            this.showNotification('No more queues to call', 'info');
+            return;
+        }
+        this.callingQueue++;
+        this.totalQueues--;
+        if (this.backup) {
+            await this.backup.endQueue(this.callingQueue);
+            console.log(`Queue ${this.callingQueue} ended in backup`);
+        }
+        this.updateDisplay();
+        this.showNotification(`Calling Queue ${this.callingQueue}`, 'info');
+    }
+
     // Reset all queues
     async resetAllQueues() {
         if (confirm('Are you sure you want to reset all queues? This action cannot be undone.')) {
@@ -97,8 +122,8 @@ class QueueManager {
                 if (this.backup) {
                     await this.backup.resetQueues();
                 }
-                
                 this.currentQueue = 0;
+                this.callingQueue = 0;
                 this.totalQueues = 0;
                 this.updateDisplay();
                 this.hideQRSection();
@@ -115,6 +140,7 @@ class QueueManager {
     // Update display elements
     updateDisplay() {
         document.getElementById('currentQueue').textContent = this.currentQueue;
+        document.getElementById('callingQueue').textContent = this.callingQueue;
         document.getElementById('totalQueues').textContent = this.totalQueues;
     }
 
@@ -130,25 +156,66 @@ class QueueManager {
         const qrData = {
             queueNumber: this.currentQueue,
             timestamp: new Date().toISOString(),
-            url: window.location.origin + '/web_QQ/queue-display.html'
+            url: window.location.origin + '/queue-display.html'
         };
         
-        // Generate QR code
-        QRCode.toCanvas(qrCodeDiv, JSON.stringify(qrData), {
-            width: 256,
-            height: 256,
-            color: {
-                dark: '#000000',
-                light: '#FFFFFF'
-            }
-        }, (error) => {
-            if (error) {
-                console.error('QR Code generation failed:', error);
-                this.showNotification('Failed to generate QR code', 'error');
-            } else {
-                qrSection.style.display = 'block';
-            }
-        });
+        // Check if QRCode library is available
+        if (typeof QRCode === 'undefined') {
+            console.warn('QRCode library not loaded, using fallback');
+            this.createFallbackQRCode(qrCodeDiv, qrData);
+            qrSection.style.display = 'block';
+            return;
+        }
+        
+        try {
+            // qrcodejs library usage - creates QR code as DOM element
+            const qr = new QRCode(qrCodeDiv, {
+                text: JSON.stringify(qrData),
+                width: 256,
+                height: 256,
+                colorDark: "#000000",
+                colorLight: "#ffffff",
+                correctLevel: QRCode.CorrectLevel.M
+            });
+            
+            console.log('QR Code generated successfully');
+            qrSection.style.display = 'block';
+            
+        } catch (error) {
+            console.error('QRCode library error:', error);
+            this.createFallbackQRCode(qrCodeDiv, qrData);
+            qrSection.style.display = 'block';
+        }
+    }
+
+    // Create fallback QR code when library fails
+    createFallbackQRCode(container, qrData) {
+        container.innerHTML = `
+            <div style="
+                width: 256px; 
+                height: 256px; 
+                border: 3px solid #0066cc; 
+                display: flex; 
+                align-items: center; 
+                justify-content: center; 
+                background: linear-gradient(45deg, #f0f8ff, #e6f3ff); 
+                margin: 0 auto;
+                flex-direction: column;
+                font-family: Arial, sans-serif;
+                border-radius: 10px;
+                box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            ">
+                <div style="font-size: 20px; font-weight: bold; margin-bottom: 15px; color: #0066cc;">🎫 Queue Ticket</div>
+                <div style="font-size: 36px; color: #ff4444; font-weight: bold; margin-bottom: 10px;">Queue #${qrData.queueNumber}</div>
+                <div style="font-size: 14px; margin-top: 15px; text-align: center; color: #666; line-height: 1.4;">
+                    Generated: ${new Date(qrData.timestamp).toLocaleString()}<br>
+                    <strong>Keep this ticket</strong><br>
+                    Wait for your number to be called
+                </div>
+            </div>
+        `;
+        
+        this.showNotification('Queue ticket generated (fallback mode)', 'info');
     }
 
     // Hide QR section
@@ -160,6 +227,7 @@ class QueueManager {
     printQRCode() {
         const printWindow = window.open('', '_blank');
         const qrSection = document.getElementById('qrSection');
+        const qrCodeDiv = document.getElementById('qrcode');
         const currentDate = new Date().toLocaleDateString();
         const currentTime = new Date().toLocaleTimeString();
         
@@ -173,23 +241,85 @@ class QueueManager {
                         font-family: Arial, sans-serif;
                         text-align: center;
                         padding: 20px;
+                        margin: 0;
+                        background: white;
                     }
                     .print-header {
-                        margin-bottom: 20px;
+                        margin-bottom: 30px;
                         border-bottom: 2px solid #000;
-                        padding-bottom: 10px;
+                        padding-bottom: 15px;
+                        text-align: center;
                     }
-                    .queue-info {
-                        font-size: 18px;
-                        margin: 10px 0;
+                    .print-header h1 {
+                        margin: 0 0 10px 0;
+                        font-size: 24px;
+                        text-align: center;
                     }
-                    .qr-container {
-                        margin: 20px 0;
-                    }
-                    .instructions {
-                        margin-top: 20px;
+                    .print-header p {
+                        margin: 0;
                         font-size: 14px;
                         color: #666;
+                        text-align: center;
+                    }
+                    .queue-info {
+                        font-size: 20px;
+                        margin: 20px 0;
+                        font-weight: bold;
+                        text-align: center;
+                    }
+                    .queue-info h2 {
+                        margin: 0;
+                        text-align: center;
+                    }
+                    .qr-title {
+                        font-size: 18px;
+                        font-weight: bold;
+                        margin: 20px 0 15px 0;
+                        text-align: center;
+                        color: #333;
+                    }
+                    .qr-container {
+                        margin: 20px auto;
+                        display: flex;
+                        justify-content: center;
+                        align-items: center;
+                        min-height: 280px;
+                        width: 100%;
+                    }
+                    .qr-container > div {
+                        margin: 0 auto;
+                        text-align: center;
+                        display: flex;
+                        justify-content: center;
+                        align-items: center;
+                        flex-direction: column;
+                    }
+                    .qr-container img,
+                    .qr-container canvas {
+                        display: block;
+                        margin: 0 auto;
+                        border: 2px solid #ddd;
+                        border-radius: 8px;
+                    }
+                    .instructions {
+                        margin-top: 30px;
+                        font-size: 14px;
+                        color: #666;
+                        line-height: 1.5;
+                        text-align: center;
+                    }
+                    .instructions p {
+                        margin: 8px 0;
+                        text-align: center;
+                    }
+                    @media print {
+                        body {
+                            margin: 0;
+                            padding: 15px;
+                        }
+                        .qr-container {
+                            page-break-inside: avoid;
+                        }
                     }
                 </style>
             </head>
@@ -201,12 +331,14 @@ class QueueManager {
                 <div class="queue-info">
                     <h2>Queue Number: ${this.currentQueue}</h2>
                 </div>
+                <div class="qr-title">QR Code</div>
                 <div class="qr-container">
-                    ${qrSection.innerHTML}
+                    ${qrCodeDiv.innerHTML}
                 </div>
                 <div class="instructions">
-                    <p>Scan this QR code to view your queue status</p>
+                    <p><strong>Scan this QR code to view your queue status</strong></p>
                     <p>Keep this slip until your number is called</p>
+                    <p>Present this ticket at the counter when requested</p>
                 </div>
             </body>
             </html>
