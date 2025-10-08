@@ -8,7 +8,9 @@ class QueueDisplay {
         this.queueName = null;
         this.userQueueNumber = null;
         this.authenticated = false;
-        this.lastCalledTime = null; // Add this property
+        this.lastCalledTime = null;
+        this.userQueueTimestamp = null; // Add this property to track user's queue creation time
+        this.userQueueServedStatus = false;
         
         // First authenticate, then initialize if valid
         this.authenticateAccess();
@@ -213,13 +215,21 @@ class QueueDisplay {
         
         if (this.backup) {
             const status = this.backup.getCurrentStatus();
-            const previousCallingQueue = this.callingQueue;
+            const userQueue = this.backup.getQueue(this.userQueueNumber);
             
             this.currentQueue = status.currentQueue;
             this.totalQueues = status.totalQueues;
             this.callingQueue = status.callingQueue;
-            
             this.lastCalledTime = status.lastCalled;
+            
+            // Get user's queue timestamp if available
+            if (userQueue && userQueue.timestamp) {
+                this.userQueueTimestamp = userQueue.timestamp;
+                this.userQueueServed = userQueue.served;
+                console.log(`🕒 User queue ${this.userQueueNumber} created at: ${this.userQueueTimestamp}`);
+            } else {
+                console.log(`⚠️ No timestamp found for queue ${this.userQueueNumber}`);
+            }
         }
     }
 
@@ -323,6 +333,50 @@ class QueueDisplay {
         }
     }
 
+    // Calculate total waiting time for user's queue
+    getTotalWaitingTime() {
+        if (!this.userQueueTimestamp) {
+            return null;
+        }
+        
+        const queueCreatedTime = new Date(this.userQueueTimestamp);
+        if (!this.userQueueServed) {
+            this.now = new Date();
+        }
+        else if (!this.userQueueServedStatus) {
+            this.now = new Date(this.lastCalledTime);
+            this.userQueueServedStatus = true;
+        }
+        const totalWaitingMs = this.now - queueCreatedTime;
+
+        return {
+            totalMs: totalWaitingMs,
+            formatted: this.formatWaitingTime(totalWaitingMs)
+        };
+    }
+
+    // Format waiting time into readable format
+    formatWaitingTime(totalMs) {
+        const totalSeconds = Math.floor(totalMs / 1000);
+        const totalMinutes = Math.floor(totalSeconds / 60);
+        const totalHours = Math.floor(totalMinutes / 60);
+        const days = Math.floor(totalHours / 24);
+        
+        const hours = totalHours % 24;
+        const minutes = totalMinutes % 60;
+        const seconds = totalSeconds % 60;
+        
+        if (days > 0) {
+            return `${days}d ${hours}h ${minutes}m`;
+        } else if (totalHours > 0) {
+            return `${hours}h ${minutes}m`;
+        } else if (totalMinutes > 0) {
+            return `${minutes}m ${seconds}s`;
+        } else {
+            return `${seconds}s`;
+        }
+    }
+
     // Get time ago string (e.g., "2 minutes ago")
     getTimeAgo(callTime) {
         const now = new Date();
@@ -375,6 +429,13 @@ class QueueDisplay {
             }
         }
 
+        // Get total waiting time
+        const waitingTime = this.getTotalWaitingTime();
+        const waitingTimeDisplay = waitingTime ? 
+            `<div style="color: #666; font-size: 14px; margin-top: 8px;">
+                ⏰ Total waiting time: <strong>${waitingTime.formatted}</strong>
+            </div>` : '';
+
         // Update user status content
         if (this.userQueueNumber <= (this.callingQueue || 0)) {
             userStatusDiv.innerHTML = `
@@ -384,6 +445,7 @@ class QueueDisplay {
                         </strong>
                     <br>
                     <small style="color: #0f421aff; font-weight: normal; font-size: 20px; margin-top: 8px; display: block;">Please proceed to the service counter</small>
+                    ${waitingTimeDisplay}
                 </div>
             `;
             userStatusDiv.style.borderColor = '#4CAF50';
@@ -399,6 +461,7 @@ class QueueDisplay {
                     <small style="color: ${remaining > 3 ? '#666;' : '#b11919ff;'} font-weight: normal; font-size: 20px; margin-top: 8px; display: block;">
                         ${remaining} queue${remaining > 1 ? 's' : ''} ahead of you
                     </small>
+                    ${waitingTimeDisplay}
                 </div>
             `;
             userStatusDiv.style.borderColor = '#2196F3';

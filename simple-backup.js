@@ -156,6 +156,10 @@ class SimpleQueueBackup {
         };
     }
 
+    getQueue(queueNumber) {
+        return this.data.queues.find(q => q.number === queueNumber) || null;
+    }
+
     // Delete all data - add this method to SimpleQueueBackup class
     async deleteAllData() {
         try {
