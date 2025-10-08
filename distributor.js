@@ -4,26 +4,345 @@ class QueueManager {
         this.currentQueue = 0;
         this.totalQueues = 0;
         this.callingQueue = 0;
-        this.queueName = 'Test Queue';
-        this.lastUpdated = null;
         this.backup = null;
-        this.initializeBackup();
+        this.queueName = null;
+        this.lastUpdated = null;
+        
+        // First authenticate, then initialize if valid
+        this.authenticateAccess();
+    }
+
+    // Authenticate access to distributor page
+    async authenticateAccess() {
+        try {
+            console.log('🔐 Authenticating distributor access...');
+            
+            // Get URL parameters
+            const urlParams = new URLSearchParams(window.location.search);
+            const queueParam = urlParams.get('queue');
+            const passwordParam = urlParams.get('password');
+            
+            console.log('📝 URL parameters:', { queue: queueParam, password: passwordParam ? 'provided' : 'missing' });
+            
+            // Check if required parameters exist
+            if (!queueParam || !passwordParam) {
+                console.log('❌ Missing required URL parameters');
+                this.redirectToLogin('Missing authentication parameters');
+                return;
+            }
+            
+            // Parse password parameter (format: storedHash_password_storedPassword)
+            const passwordParts = passwordParam.split('_');
+            if (passwordParts.length < 3) {
+                console.log('❌ Invalid password parameter format');
+                this.redirectToLogin('Invalid authentication format');
+                return;
+            }
+            
+            const storedHash = passwordParts[0];
+            const plainPassword = passwordParts[1];
+            const storedPassword = passwordParts.slice(2).join('_'); // In case stored password contains underscores
+            
+            console.log('🔍 Parsed authentication data:', {
+                queue: queueParam,
+                storedHash: storedHash,
+                plainPassword: plainPassword ? 'provided' : 'missing',
+                storedPassword: storedPassword ? 'provided' : 'missing'
+            });
+            
+            // Load authentication data from server
+            const authData = await this.loadAuthData();
+            
+            // Check if queue exists in auth data
+            if (!authData.queues || !authData.queues[queueParam]) {
+                console.log('❌ Queue not found in authentication data');
+                this.redirectToLogin('Queue not found');
+                return;
+            }
+            
+            const queueAuthData = authData.queues[queueParam];
+            console.log('📖 Queue auth data found');
+            
+            // Verify authentication parameters
+            const isValid = await this.verifyAuthentication(
+                queueParam, 
+                plainPassword, 
+                storedHash, 
+                storedPassword, 
+                queueAuthData
+            );
+            
+            if (!isValid) {
+                console.log('❌ Authentication verification failed');
+                this.redirectToLogin('Invalid authentication credentials');
+                return;
+            }
+            
+            // Authentication successful
+            console.log('✅ Authentication successful');
+            this.queueName = queueParam;
+            
+            // Update last accessed time
+            queueAuthData.lastAccessed = new Date().toISOString();
+            await this.saveAuthData(authData);
+            
+            // Set session
+            this.setSession(queueParam);
+            
+            // Initialize the queue system
+            await this.initializeBackup();
+            
+        } catch (error) {
+            console.error('❌ Authentication error:', error);
+            this.redirectToLogin('Authentication system error');
+        }
+    }
+
+    // Verify authentication parameters
+    async verifyAuthentication(queueName, plainPassword, providedHash, providedStoredPassword, queueAuthData) {
+        try {
+            console.log('🔍 Verifying authentication...');
+            
+            // Get stored data
+            const actualStoredPassword = queueAuthData.password;
+            const actualStoredHash = queueAuthData.passwordHash;
+            
+            console.log('📊 Verification data:', {
+                actualStoredHash: actualStoredHash,
+                providedHash: providedHash,
+                actualStoredPassword: actualStoredPassword ? 'exists' : 'missing',
+                providedStoredPassword: providedStoredPassword ? 'exists' : 'missing'
+            });
+            
+            // Verify hash matches
+            if (actualStoredHash !== providedHash) {
+                console.log('❌ Hash verification failed');
+                return false;
+            }
+            
+            // Verify stored password matches
+            if (actualStoredPassword !== providedStoredPassword) {
+                console.log('❌ Stored password verification failed');
+                return false;
+            }
+            
+            // Verify plain password can be decrypted and matches
+            let passwordMatches = false;
+            
+            // Try to decrypt stored password (new method)
+            if (actualStoredPassword && actualStoredPassword.startsWith('QMS_')) {
+                const decryptedPassword = this.decryptPassword(actualStoredPassword);
+                passwordMatches = (decryptedPassword === plainPassword);
+                console.log('🔓 Password decryption check:', passwordMatches ? 'passed' : 'failed');
+            }
+            // Fallback: check hash (for backward compatibility)
+            else if (actualStoredHash) {
+                passwordMatches = (this.hashPassword(plainPassword) === actualStoredHash);
+                console.log('🔐 Password hash check:', passwordMatches ? 'passed' : 'failed');
+            }
+            
+            if (!passwordMatches) {
+                console.log('❌ Password verification failed');
+                return false;
+            }
+            
+            console.log('✅ All authentication checks passed');
+            return true;
+            
+        } catch (error) {
+            console.error('❌ Error during authentication verification:', error);
+            return false;
+        }
+    }
+
+    // Simple decryption function (copied from login.js)
+    decryptPassword(encryptedPassword) {
+        try {
+            // Step 1: Remove prefix and suffix
+            let cleaned = encryptedPassword;
+            if (cleaned.startsWith('QMS_')) {
+                cleaned = cleaned.substring(4);
+            }
+            const lastUnderscore = cleaned.lastIndexOf('_');
+            if (lastUnderscore > 0) {
+                cleaned = cleaned.substring(0, lastUnderscore);
+            }
+            
+            // Step 2: Decode from Base64
+            let shifted = atob(cleaned);
+            
+            // Step 3: Reverse character shifting
+            let original = '';
+            for (let i = 0; i < shifted.length; i++) {
+                let char = shifted.charCodeAt(i);
+                original += String.fromCharCode(char - 7);
+            }
+            
+            // Step 4: Decode final Base64
+            return atob(original);
+        } catch (error) {
+            console.error('Decryption failed:', error);
+            return null;
+        }
+    }
+
+    // Hash password for additional security (copied from login.js)
+    hashPassword(password) {
+        let hash = 0;
+        for (let i = 0; i < password.length; i++) {
+            const char = password.charCodeAt(i);
+            hash = ((hash << 5) - hash) + char;
+            hash = hash & hash; // Convert to 32-bit integer
+        }
+        return Math.abs(hash).toString(16);
+    }
+
+    // Load authentication data
+    async loadAuthData() {
+        try {
+            // Try to fetch from server first
+            const response = await fetch('/queue-auth.json');
+            if (response.ok) {
+                return await response.json();
+            }
+        } catch (error) {
+            console.log('Server not available, checking localStorage');
+        }
+
+        // Fallback to localStorage
+        const localData = localStorage.getItem('queueAuth');
+        if (localData) {
+            return JSON.parse(localData);
+        }
+
+        // Default structure if no data exists
+        return {
+            queues: {},
+            lastUpdated: new Date().toISOString()
+        };
+    }
+
+    // Save authentication data
+    async saveAuthData(authData) {
+        const jsonData = JSON.stringify(authData, null, 2);
+
+        // Always save to localStorage
+        localStorage.setItem('queueAuth', jsonData);
+
+        // Try to save to server
+        try {
+            await fetch('/api/save-auth', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: jsonData
+            });
+            console.log('Auth data saved to server');
+        } catch (error) {
+            console.log('Server save failed, using localStorage only');
+        }
+    }
+
+    // Set session data
+    setSession(queueName) {
+        const sessionData = {
+            queue: queueName,
+            loginTime: new Date().toISOString(),
+            hash: this.hashPassword(queueName + new Date().toDateString())
+        };
+        
+        sessionStorage.setItem('currentQueue', queueName);
+        sessionStorage.setItem('loginTime', sessionData.loginTime);
+        sessionStorage.setItem('sessionHash', sessionData.hash);
+    }
+
+    // Redirect to login page with message
+    redirectToLogin(reason = 'Authentication required') {
+        console.log('🔄 Redirecting to login:', reason);
+        
+        // Clear any existing session
+        sessionStorage.clear();
+        localStorage.removeItem('queueAuth');
+        
+        // Show brief message before redirect
+        document.body.innerHTML = `
+            <div style="
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                height: 100vh;
+                font-family: Arial, sans-serif;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white;
+                text-align: center;
+                flex-direction: column;
+            ">
+                <div style="
+                    background: rgba(255,255,255,0.1);
+                    padding: 30px;
+                    border-radius: 15px;
+                    backdrop-filter: blur(10px);
+                    border: 1px solid rgba(255,255,255,0.2);
+                ">
+                    <h2 style="margin: 0 0 15px 0;">🔐 Authentication Required</h2>
+                    <p style="margin: 0 0 20px 0;">${reason}</p>
+                    <p style="margin: 0; opacity: 0.8; font-size: 14px;">Redirecting to login page...</p>
+                </div>
+            </div>
+        `;
+        
+        // Redirect after 2 seconds
+        setTimeout(() => {
+            window.location.href = '/index.html';
+        }, 2000);
     }
 
     // Initialize backup system and load data
     async initializeBackup() {
         try {
-            this.backup = new SimpleQueueBackup();
+            console.log(`🔄 Initializing backup system for queue: ${this.queueName}`);
+            this.backup = new SimpleQueueBackup(this.queueName);
             await this.backup.init();
             this.loadQueueData();
             this.initializeEventListeners();
             this.updateDisplay();
-            console.log('Backup system ready');
+            this.showAuthenticationStatus();
+            console.log('✅ Backup system ready');
         } catch (error) {
-            console.error('Backup initialization failed:', error);
+            console.error('❌ Backup initialization failed:', error);
             this.initializeEventListeners();
             this.updateDisplay();
         }
+    }
+
+    // Show authentication status
+    showAuthenticationStatus() {
+        const authStatusDiv = document.createElement('div');
+        authStatusDiv.innerHTML = `
+            <div style="
+                position: fixed;
+                top: 10px;
+                left: 10px;
+                background: rgba(76, 175, 80, 0.9);
+                color: white;
+                padding: 10px 15px;
+                border-radius: 8px;
+                font-size: 14px;
+                z-index: 1000;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+            ">
+                ✅ Authenticated as: <strong>${this.queueName}</strong>
+                <br>
+                <small>Session: ${new Date().toLocaleTimeString()}</small>
+            </div>
+        `;
+        document.body.appendChild(authStatusDiv);
+        
+        // Remove after 5 seconds
+        setTimeout(() => {
+            if (authStatusDiv.parentNode) {
+                authStatusDiv.parentNode.removeChild(authStatusDiv);
+            }
+        }, 5000);
     }
 
     // Load queue data from backup
@@ -32,9 +351,8 @@ class QueueManager {
             const status = this.backup.getCurrentStatus();
             this.currentQueue = status.currentQueue;
             this.totalQueues = status.totalQueues;
-            this.callingQueue = status.callingQueue
-            this.queueName = status.queueName
-            this.lastUpdated = status.lastUpdated
+            this.callingQueue = status.callingQueue;
+            this.lastUpdated = status.lastUpdated;
             if (this.currentQueue > 0) {
                 this.generateQRCode();
             }
@@ -43,6 +361,19 @@ class QueueManager {
 
     // Initialize event listeners
     initializeEventListeners() {
+        // Add logout button functionality
+        const logoutBtn = document.createElement('button');
+        logoutBtn.textContent = '🚪 Logout';
+        logoutBtn.className = 'btn btn-secondary';
+        logoutBtn.style.cssText = `
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            z-index: 1001;
+        `;
+        logoutBtn.addEventListener('click', () => this.logout());
+        document.body.appendChild(logoutBtn);
+
         document.getElementById('newQueueBtn').addEventListener('click', () => {
             this.generateNewQueue();
         });
@@ -69,6 +400,15 @@ class QueueManager {
         });
     }
 
+    // Logout function
+    logout() {
+        if (confirm('Are you sure you want to logout?')) {
+            console.log('🚪 User logging out...');
+            sessionStorage.clear();
+            window.location.href = '/index.html';
+        }
+    }
+
     // Generate new queue number
     async generateNewQueue() {
         // Prevent multiple rapid clicks
@@ -85,7 +425,7 @@ class QueueManager {
             // Save to backup system first
             if (this.backup) {
                 await this.backup.addQueue(newQueueNumber);
-                console.log(`Queue ${newQueueNumber} saved to backup`);
+                console.log(`Queue ${newQueueNumber} saved to backup for ${this.queueName}`);
                 
                 // Reload data from backup to ensure sync
                 this.loadQueueData();
@@ -96,10 +436,9 @@ class QueueManager {
             }
             
             this.updateDisplay();
-            // this.generateQRCode();
             
             // Show success message
-            this.showNotification(`Queue ${this.currentQueue} generated and backed up!`, 'success');
+            this.showNotification(`Queue ${this.currentQueue} generated for ${this.queueName}!`, 'success');
         } catch (error) {
             console.error('Failed to generate queue:', error);
             this.showNotification('Failed to generate queue', 'error');
@@ -107,7 +446,7 @@ class QueueManager {
             // Re-enable button
             setTimeout(() => {
                 newQueueBtn.disabled = false;
-                newQueueBtn.textContent = 'New Queue';
+                newQueueBtn.textContent = '🎫 New Queue';
             }, 500);
         }
     }
@@ -130,7 +469,7 @@ class QueueManager {
 
     // Reset all queues
     async resetAllQueues() {
-        if (confirm('Are you sure you want to reset all queues? This action cannot be undone.')) {
+        if (confirm(`Are you sure you want to reset all queues for "${this.queueName}"? This action cannot be undone.`)) {
             try {
                 if (this.backup) {
                     await this.backup.resetQueues();
@@ -142,10 +481,10 @@ class QueueManager {
                 this.hideQRSection();
                 
                 // Show reset message
-                this.showNotification('All queues have been reset!', 'info');
+                this.showNotification(`All queues have been reset for ${this.queueName}!`, 'info');
             } catch (error) {
                 console.error('Failed to reset queues:', error);
-                this.showNotification('Failed to reset queues', error);
+                this.showNotification('Failed to reset queues', 'error');
             }
         }
     }
@@ -175,7 +514,7 @@ class QueueManager {
                 
                 // Redirect to login page after 2 seconds
                 setTimeout(() => {
-                    window.location.href = 'index.html';
+                    window.location.href = '/index.html';
                 }, 2000);
                 
             } catch (error) {
@@ -267,37 +606,20 @@ class QueueManager {
         }
     }
 
-    // Clear browser storage (keep this as backup)
-    clearLocalStorage() {
-        // Get all localStorage keys that start with 'queueBackup_'
-        const keysToDelete = [];
-        for (let i = 0; i < localStorage.length; i++) {
-            const key = localStorage.key(i);
-            if (key && (key.startsWith('queueBackup_') || key === 'queueAuth')) {
-                keysToDelete.push(key);
-            }
-        }
-        
-        console.log('Clearing browser storage keys:', keysToDelete);
-        
-        // Delete all queue-related data from browser
-        keysToDelete.forEach(key => {
-            localStorage.removeItem(key);
-            console.log(`Cleared browser storage: ${key}`);
-        });
-        
-        // Clear session storage
-        sessionStorage.clear();
-        
-        console.log('All browser storage cleared');
-    }
-
     // Update display elements
     updateDisplay() {
-        document.getElementById('queueName').textContent = this.queueName;
+        const queueNameElement = document.getElementById('queueName');
+        if (queueNameElement) {
+            queueNameElement.textContent = this.queueName;
+        }
+        
         document.getElementById('currentQueue').textContent = this.currentQueue;
-        document.getElementById('callingQueue').textContent = this.callingQueue;
         document.getElementById('totalQueues').textContent = this.totalQueues;
+        
+        const callingQueueElement = document.getElementById('callingQueue');
+        if (callingQueueElement) {
+            callingQueueElement.textContent = this.callingQueue;
+        }
     }
 
     // Generate QR code
@@ -380,6 +702,7 @@ class QueueManager {
                 border-radius: 10px;
                 box-shadow: 0 4px 8px rgba(0,0,0,0.1);
             ">
+                <div style="font-size: 16px; font-weight: bold; margin-bottom: 10px; color: #0066cc;">${qrData.queueName}</div>
                 <div style="font-size: 20px; font-weight: bold; margin-bottom: 15px; color: #0066cc;">🎫 Queue Ticket</div>
                 <div style="font-size: 36px; color: #ff4444; font-weight: bold; margin-bottom: 10px;">Queue #${qrData.queueNumber}</div>
                 <div style="font-size: 14px; margin-top: 15px; text-align: center; color: #666; line-height: 1.4;">
@@ -401,7 +724,6 @@ class QueueManager {
     // Print QR code
     printQRCode() {
         const printWindow = window.open('', '_blank');
-        const qrSection = document.getElementById('qrSection');
         const qrCodeDiv = document.getElementById('qrcode');
         const currentDate = new Date().toLocaleDateString();
         const currentTime = new Date().toLocaleTimeString();
@@ -410,7 +732,7 @@ class QueueManager {
             <!DOCTYPE html>
             <html>
             <head>
-                <title>Queue QR Code - ${this.currentQueue}</title>
+                <title>Queue QR Code - ${this.queueName} #${this.currentQueue}</title>
                 <style>
                     body {
                         font-family: Arial, sans-serif;
@@ -500,8 +822,8 @@ class QueueManager {
             </head>
             <body>
                 <div class="print-header">
-                    <h1>${this.queueName}</h1>
-                    <p>Date: ${currentDate} | Time: ${currentTime}</p>
+                    <h1>Queue Management System</h1>
+                    <p>Queue: ${this.queueName} | Date: ${currentDate} | Time: ${currentTime}</p>
                 </div>
                 <div class="queue-info">
                     <h2>Queue Number: ${this.currentQueue}</h2>
@@ -528,8 +850,6 @@ class QueueManager {
             printWindow.close();
         }, 1000);
     }
-
-
 
     // Show notification
     showNotification(message, type = 'info') {
@@ -562,6 +882,9 @@ class QueueManager {
             case 'info':
                 notification.style.backgroundColor = '#2196F3';
                 break;
+            case 'warning':
+                notification.style.backgroundColor = '#ff9800';
+                break;
             default:
                 notification.style.backgroundColor = '#6c757d';
         }
@@ -593,8 +916,6 @@ class QueueManager {
             }, 300);
         }, 3000);
     }
-
-    // New method: Delete only current queue
 }
 
 // Initialize the queue manager when the page loads
