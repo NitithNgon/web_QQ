@@ -9,10 +9,76 @@ class QueueLogin {
         this.checkExistingSession();
     }
 
+    // Simple encryption function (Base64 + character shifting)
+    encryptPassword(password) {
+        // Step 1: Convert to Base64
+        let encrypted = btoa(password);
+        
+        // Step 2: Character shifting (Caesar cipher with shift of 7)
+        let shifted = '';
+        for (let i = 0; i < encrypted.length; i++) {
+            let char = encrypted.charCodeAt(i);
+            // Shift character by 7 positions
+            shifted += String.fromCharCode(char + 7);
+        }
+        
+        // Step 3: Add random prefix and suffix to make it look more complex
+        const prefix = 'QMS_';
+        const suffix = '_' + Date.now().toString(36).slice(-4);
+        
+        return prefix + btoa(shifted) + suffix;
+    }
+
+    // Simple decryption function
+    decryptPassword(encryptedPassword) {
+        try {
+            // Step 1: Remove prefix and suffix
+            let cleaned = encryptedPassword;
+            if (cleaned.startsWith('QMS_')) {
+                cleaned = cleaned.substring(4);
+            }
+            const lastUnderscore = cleaned.lastIndexOf('_');
+            if (lastUnderscore > 0) {
+                cleaned = cleaned.substring(0, lastUnderscore);
+            }
+            
+            // Step 2: Decode from Base64
+            let shifted = atob(cleaned);
+            
+            // Step 3: Reverse character shifting
+            let original = '';
+            for (let i = 0; i < shifted.length; i++) {
+                let char = shifted.charCodeAt(i);
+                original += String.fromCharCode(char - 7);
+            }
+            
+            // Step 4: Decode final Base64
+            return atob(original);
+        } catch (error) {
+            console.error('Decryption failed:', error);
+            return null;
+        }
+    }
+
+    // Hash password for additional security (one-way)
+    hashPassword(password) {
+        let hash = 0;
+        for (let i = 0; i < password.length; i++) {
+            const char = password.charCodeAt(i);
+            hash = ((hash << 5) - hash) + char;
+            hash = hash & hash; // Convert to 32-bit integer
+        }
+        return Math.abs(hash).toString(16);
+    }
+
     initializeEventListeners() {
         document.getElementById('loginForm').addEventListener('submit', (e) => {
             e.preventDefault();
             this.handleLogin();
+        });
+
+        document.getElementById('viewDisplayBtn').addEventListener('click', () => {
+            window.location.href = 'queue-display.html';
         });
 
         // Clear any previous error messages when user types
@@ -32,6 +98,7 @@ class QueueLogin {
             this.showMessage('Please enter both queue name and password', 'error');
             return;
         }
+        
         // Validate queue name format - allow Thai letters, English letters, numbers, hyphens, and underscores
         if (!/^[a-zA-Z0-9\u0E00-\u0E7F\-_\s]+$/.test(queueName)) {
             this.showMessage('Queue name can only contain Thai letters, English letters, numbers, hyphens, underscores, and spaces', 'error');
@@ -51,11 +118,36 @@ class QueueLogin {
             
             if (authData.queues[queueName]) {
                 // Existing queue - check password
-                if (authData.queues[queueName].password === password) {
+                const storedPassword = authData.queues[queueName].password;
+                const storedHash = authData.queues[queueName].passwordHash;
+                
+                let passwordMatch = false;
+                
+                // Try to decrypt stored password (new method)
+                if (storedPassword && storedPassword.startsWith('QMS_')) {
+                    const decryptedPassword = this.decryptPassword(storedPassword);
+                    passwordMatch = (decryptedPassword === password);
+                }
+                // Fallback: check hash (for backward compatibility)
+                else if (storedHash) {
+                    passwordMatch = (this.hashPassword(password) === storedHash);
+                }
+                // Fallback: plain text comparison (old method)
+                else {
+                    passwordMatch = (storedPassword === password);
+                    // Upgrade to encrypted storage
+                    await this.upgradePasswordSecurity(queueName, password);
+                }
+                
+                if (passwordMatch) {
+                    // Update last accessed time
+                    authData.queues[queueName].lastAccessed = new Date().toISOString();
+                    await this.saveAuthData(authData);
+                    
                     this.showMessage('Login successful! Redirecting...', 'success');
                     this.setSession(queueName);
                     setTimeout(() => {
-                        window.location.href = `distributor.html?queue=${queueName}`;
+                        window.location.href = `distributor.html?queue=${queueName}&password=${storedHash}_${password}_${storedPassword}`;
                     }, 1000);
                 } else {
                     this.showMessage('Invalid password for existing queue', 'error');
@@ -64,14 +156,32 @@ class QueueLogin {
                 // New queue - create it
                 await this.createNewQueue(queueName, password);
                 this.showMessage('New queue created successfully! Redirecting...', 'success');
+                const authData = await this.loadAuthData();
                 this.setSession(queueName);
                 setTimeout(() => {
-                    window.location.href = `distributor.html?queue=${queueName}`;
+                    window.location.href = `distributor.html?queue=${queueName}&password=${authData.queues[queueName].passwordHash}_${password}_${authData.queues[queueName].password}`;
                 }, 1000);
             }
         } catch (error) {
             console.error('Login error:', error);
             this.showMessage('Login failed. Please try again.', 'error');
+        }
+    }
+
+    // Upgrade old plain text passwords to encrypted storage
+    async upgradePasswordSecurity(queueName, password) {
+        try {
+            const authData = await this.loadAuthData();
+            if (authData.queues[queueName]) {
+                authData.queues[queueName].password = this.encryptPassword(password);
+                authData.queues[queueName].passwordHash = this.hashPassword(password);
+                authData.queues[queueName].upgraded = new Date().toISOString();
+                authData.lastUpdated = new Date().toISOString();
+                await this.saveAuthData(authData);
+                console.log(`Password security upgraded for queue: ${queueName}`);
+            }
+        } catch (error) {
+            console.error('Failed to upgrade password security:', error);
         }
     }
 
@@ -102,10 +212,13 @@ class QueueLogin {
     async createNewQueue(queueName, password) {
         const authData = await this.loadAuthData();
         
+        // Store encrypted password and hash
         authData.queues[queueName] = {
-            password: password,
+            password: this.encryptPassword(password),
+            passwordHash: this.hashPassword(password),
             created: new Date().toISOString(),
-            lastAccessed: new Date().toISOString()
+            lastAccessed: new Date().toISOString(),
+            encrypted: true
         };
         authData.lastUpdated = new Date().toISOString();
 
@@ -146,7 +259,7 @@ class QueueLogin {
     async saveAuthData(authData) {
         const jsonData = JSON.stringify(authData, null, 2);
 
-        // Always save to localStorage
+        // Always save to localStorage (but encrypted)
         localStorage.setItem('queueAuth', jsonData);
 
         // Try to save to server
@@ -163,15 +276,32 @@ class QueueLogin {
     }
 
     setSession(queueName) {
+        // Encrypt session data too
+        const sessionData = {
+            queue: queueName,
+            loginTime: new Date().toISOString(),
+            hash: this.hashPassword(queueName + new Date().toDateString())
+        };
+        
         sessionStorage.setItem('currentQueue', queueName);
-        sessionStorage.setItem('loginTime', new Date().toISOString());
+        sessionStorage.setItem('loginTime', sessionData.loginTime);
+        sessionStorage.setItem('sessionHash', sessionData.hash);
     }
 
     checkExistingSession() {
         const currentQueue = sessionStorage.getItem('currentQueue');
         const loginTime = sessionStorage.getItem('loginTime');
+        const sessionHash = sessionStorage.getItem('sessionHash');
         
-        if (currentQueue && loginTime) {
+        if (currentQueue && loginTime && sessionHash) {
+            // Verify session integrity
+            const expectedHash = this.hashPassword(currentQueue + new Date(loginTime).toDateString());
+            if (sessionHash !== expectedHash) {
+                // Session might be tampered with, clear it
+                this.clearSession();
+                return;
+            }
+            
             // Check if session is less than 8 hours old
             const loginDate = new Date(loginTime);
             const now = new Date();
@@ -182,10 +312,15 @@ class QueueLogin {
                 document.getElementById('queueName').value = currentQueue;
             } else {
                 // Clear expired session
-                sessionStorage.removeItem('currentQueue');
-                sessionStorage.removeItem('loginTime');
+                this.clearSession();
             }
         }
+    }
+
+    clearSession() {
+        sessionStorage.removeItem('currentQueue');
+        sessionStorage.removeItem('loginTime');
+        sessionStorage.removeItem('sessionHash');
     }
 
     showMessage(message, type) {

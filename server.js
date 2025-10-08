@@ -11,6 +11,7 @@ class QueueServer {
         this.authFile = 'queue-auth.json';
         this.backupDir = 'queue-backups';
         this.server = http.createServer((req, res) => this.handleRequest(req, res));
+        this.cleanupInterval = null;
     }
 
     // Add this missing method to read request body
@@ -38,12 +39,230 @@ class QueueServer {
             console.error('Failed to create backup directory:', error);
         }
 
+        // Start the cleanup scheduler
+        this.startCleanupScheduler();
+
         this.server.listen(this.port, () => {
             console.log(`🚀 Queue Management Server running on http://localhost:${this.port}`);
             console.log('📁 Serving files from current directory');
             console.log('💾 Auth file:', this.authFile);
             console.log('📂 Backup directory:', this.backupDir);
+            console.log('🧹 Cleanup scheduler started - checking inactive queues daily');
         });
+    }
+
+    // Start the daily cleanup scheduler
+    startCleanupScheduler() {
+        // Run cleanup immediately on startup
+        this.performCleanup();
+        
+        // Schedule cleanup to run every 24 hours (86400000 milliseconds)
+        this.cleanupInterval = setInterval(() => {
+            this.performCleanup();
+        }, 24 * 60 * 60 * 1000); // 24 hours in milliseconds
+        
+        console.log('🕒 Daily cleanup scheduler initialized');
+    }
+
+    // Stop the cleanup scheduler (useful for graceful shutdown)
+    stopCleanupScheduler() {
+        if (this.cleanupInterval) {
+            clearInterval(this.cleanupInterval);
+            this.cleanupInterval = null;
+            console.log('🛑 Cleanup scheduler stopped');
+        }
+    }
+
+    // Perform the daily cleanup check
+    async performCleanup() {
+        try {
+            console.log('🧹 Starting daily cleanup check...');
+            const now = new Date();
+            console.log(`🕒 Current time: ${now.toISOString()}`);
+            
+            // Check if auth file exists
+            try {
+                await fs.access(this.authFile);
+            } catch {
+                console.log('📄 No auth file found, nothing to cleanup');
+                return;
+            }
+            
+            // Read auth data
+            const authFileContent = await fs.readFile(this.authFile, 'utf8');
+            const authData = JSON.parse(authFileContent);
+            
+            if (!authData.queues || Object.keys(authData.queues).length === 0) {
+                console.log('📄 No queues found in auth file');
+                return;
+            }
+            
+            const queueNames = Object.keys(authData.queues);
+            console.log(`🔍 Found ${queueNames.length} queues to check:`, queueNames);
+            
+            let deletedQueues = [];
+            let activeQueues = [];
+            
+            // Check each queue for inactivity
+            for (const queueName of queueNames) {
+                const queueData = authData.queues[queueName];
+                const lastAccessed = new Date(queueData.lastAccessed);
+                const daysSinceAccess = (now - lastAccessed) / (1000 * 60 * 60 * 24);
+                
+                console.log(`📊 Queue "${queueName}": Last accessed ${daysSinceAccess.toFixed(2)} days ago`);
+                
+                if (daysSinceAccess > 1) {
+                    console.log(`🗑️ Queue "${queueName}" is inactive (${daysSinceAccess.toFixed(2)} days), marking for deletion`);
+                    deletedQueues.push(queueName);
+                } else {
+                    console.log(`✅ Queue "${queueName}" is active (${daysSinceAccess.toFixed(2)} days)`);
+                    activeQueues.push(queueName);
+                }
+            }
+            
+            // Delete inactive queues
+            if (deletedQueues.length > 0) {
+                console.log(`🗑️ Deleting ${deletedQueues.length} inactive queues:`, deletedQueues);
+                
+                for (const queueName of deletedQueues) {
+                    await this.deleteInactiveQueue(queueName);
+                }
+                
+                console.log(`✅ Cleanup completed: ${deletedQueues.length} queues deleted, ${activeQueues.length} queues remain active`);
+            } else {
+                console.log(`✅ Cleanup completed: All ${activeQueues.length} queues are active, no deletion needed`);
+            }
+            
+        } catch (error) {
+            console.error('❌ Error during cleanup:', error);
+        }
+    }
+
+    // Delete an inactive queue (similar to deleteCurrentQueue in distributor.js)
+    async deleteInactiveQueue(queueName) {
+        try {
+            console.log(`🗑️ Starting deletion process for inactive queue: "${queueName}"`);
+            
+            // Delete backup file
+            await this.deleteQueueBackupFileInternal(queueName);
+            
+            // Remove queue from auth file
+            await this.removeQueueFromAuthFile(queueName);
+            
+            console.log(`✅ Successfully deleted inactive queue: "${queueName}"`);
+        } catch (error) {
+            console.error(`❌ Failed to delete inactive queue "${queueName}":`, error);
+        }
+    }
+
+    // Internal method to delete queue backup file (server-side only)
+    async deleteQueueBackupFileInternal(queueName) {
+        try {
+            const filename = `queue-backup-${queueName}.json`;
+            const filepath = path.join(this.backupDir, filename);
+            
+            console.log(`🗑️ Attempting to delete backup file: ${filepath}`);
+            
+            try {
+                await fs.access(filepath);
+                await fs.unlink(filepath);
+                console.log(`✅ Backup file deleted: ${filename}`);
+            } catch {
+                console.log(`📄 Backup file not found (already deleted): ${filename}`);
+            }
+        } catch (error) {
+            console.error(`❌ Error deleting backup file for ${queueName}:`, error);
+        }
+    }
+
+    // Internal method to remove queue from auth file (server-side only)
+    async removeQueueFromAuthFile(queueName) {
+        try {
+            console.log(`🗑️ Removing queue "${queueName}" from auth file`);
+            
+            // Read current auth data
+            const authFileContent = await fs.readFile(this.authFile, 'utf8');
+            const authData = JSON.parse(authFileContent);
+            
+            // Remove the specific queue
+            if (authData.queues && authData.queues[queueName]) {
+                delete authData.queues[queueName];
+                authData.lastUpdated = new Date().toISOString();
+                
+                // If no queues left, delete the entire file
+                if (Object.keys(authData.queues).length === 0) {
+                    console.log('🗑️ No queues remaining, deleting entire auth file');
+                    await fs.unlink(this.authFile);
+                    console.log('✅ Auth file deleted (no queues remaining)');
+                } else {
+                    // Write updated auth data back to file
+                    await fs.writeFile(this.authFile, JSON.stringify(authData, null, 2));
+                    console.log(`✅ Queue "${queueName}" removed from auth file`);
+                }
+            } else {
+                console.log(`📄 Queue "${queueName}" not found in auth file`);
+            }
+        } catch (error) {
+            console.error(`❌ Error removing queue "${queueName}" from auth file:`, error);
+        }
+    }
+
+    // Add method for manual cleanup trigger (for testing)
+    async handleManualCleanup(req, res) {
+        try {
+            console.log('🧪 Manual cleanup triggered');
+            await this.performCleanup();
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: true, message: 'Manual cleanup completed' }));
+        } catch (error) {
+            console.error('❌ Manual cleanup failed:', error);
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Manual cleanup failed: ' + error.message }));
+        }
+    }
+
+    // Add method to get cleanup status
+    async handleCleanupStatus(req, res) {
+        try {
+            const status = {
+                schedulerActive: this.cleanupInterval !== null,
+                lastCheck: new Date().toISOString(),
+                nextCheck: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+                totalQueues: 0,
+                activeQueues: 0,
+                inactiveQueues: 0
+            };
+
+            // Get current queue statistics
+            try {
+                const authFileContent = await fs.readFile(this.authFile, 'utf8');
+                const authData = JSON.parse(authFileContent);
+                
+                if (authData.queues) {
+                    const now = new Date();
+                    status.totalQueues = Object.keys(authData.queues).length;
+                    
+                    for (const [queueName, queueData] of Object.entries(authData.queues)) {
+                        const lastAccessed = new Date(queueData.lastAccessed);
+                        const daysSinceAccess = (now - lastAccessed) / (1000 * 60 * 60 * 24);
+                        
+                        if (daysSinceAccess > 1) {
+                            status.inactiveQueues++;
+                        } else {
+                            status.activeQueues++;
+                        }
+                    }
+                }
+            } catch {
+                // Auth file doesn't exist or is invalid
+            }
+
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(status, null, 2));
+        } catch (error) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Failed to get cleanup status: ' + error.message }));
+        }
     }
 
     async handleRequest(req, res) {
@@ -92,6 +311,15 @@ class QueueServer {
                 const queueName = decodeURIComponent(path.split('/').pop());
                 console.log('🗑️ Handling delete queue backup for:', queueName);
                 await this.handleDeleteQueueBackup(res, queueName);
+            }
+            // New cleanup endpoints
+            else if (path === '/api/manual-cleanup' && method === 'POST') {
+                console.log('🧪 Handling manual cleanup');
+                await this.handleManualCleanup(req, res);
+            }
+            else if (path === '/api/cleanup-status' && method === 'GET') {
+                console.log('📊 Handling cleanup status');
+                await this.handleCleanupStatus(req, res);
             }
             // Serve auth file directly
             else if (path === '/queue-auth.json') {
@@ -354,8 +582,39 @@ class QueueServer {
         };
         return types[ext] || 'text/plain';
     }
+
+    // Graceful shutdown
+    async shutdown() {
+        console.log('🛑 Server shutting down...');
+        this.stopCleanupScheduler();
+        
+        return new Promise((resolve) => {
+            this.server.close(() => {
+                console.log('✅ Server closed gracefully');
+                resolve();
+            });
+        });
+    }
 }
+
+// Handle graceful shutdown
+process.on('SIGINT', async () => {
+    console.log('\n🛑 Received SIGINT, shutting down gracefully...');
+    if (global.queueServer) {
+        await global.queueServer.shutdown();
+    }
+    process.exit(0);
+});
+
+process.on('SIGTERM', async () => {
+    console.log('\n🛑 Received SIGTERM, shutting down gracefully...');
+    if (global.queueServer) {
+        await global.queueServer.shutdown();
+    }
+    process.exit(0);
+});
 
 // Start the server
 const server = new QueueServer();
+global.queueServer = server;
 server.start().catch(console.error);

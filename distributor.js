@@ -5,6 +5,7 @@ class QueueManager {
         this.totalQueues = 0;
         this.callingQueue = 0;
         this.queueName = 'Test Queue';
+        this.lastUpdated = null;
         this.backup = null;
         this.initializeBackup();
     }
@@ -33,6 +34,7 @@ class QueueManager {
             this.totalQueues = status.totalQueues;
             this.callingQueue = status.callingQueue
             this.queueName = status.queueName
+            this.lastUpdated = status.lastUpdated
             if (this.currentQueue > 0) {
                 this.generateQRCode();
             }
@@ -309,8 +311,8 @@ class QueueManager {
         // Create QR code data
         const qrData = {
             queueNumber: this.currentQueue,
-            timestamp: new Date().toISOString(),
-            url: window.location.origin + '/queue-display.html'
+            timestamp: this.lastUpdated,
+            url: window.location.origin + '/queue-display.html?queue=' + this.encryptUnicode(this.queueName) + '&number=' + this.encryptUnicode(this.currentQueue),
         };
         
         // Check if QRCode library is available
@@ -340,6 +342,25 @@ class QueueManager {
             this.createFallbackQRCode(qrCodeDiv, qrData);
             qrSection.style.display = 'block';
         }
+    }
+
+    encryptUnicode(str) {
+        const SECRET_KEY = 129;
+        const encoder = new TextEncoder();
+        const bytes = encoder.encode(str); // UTF-8 bytes
+        const encrypted = bytes.map(b => b ^ SECRET_KEY); // XOR each byte
+        // convert to Base64 (shorter than hex)
+        let binary = String.fromCharCode(...encrypted);
+        return btoa(binary);
+    }
+
+    decryptUnicode(enc) {
+        const SECRET_KEY = 129;
+        let binary = atob(enc);
+        const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
+        const decrypted = bytes.map(b => b ^ SECRET_KEY);
+        const decoder = new TextDecoder();
+        return decoder.decode(decrypted);
     }
 
     // Create fallback QR code when library fails
