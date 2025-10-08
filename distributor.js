@@ -361,18 +361,10 @@ class QueueManager {
 
     // Initialize event listeners
     initializeEventListeners() {
-        // Add logout button functionality
-        const logoutBtn = document.createElement('button');
-        logoutBtn.textContent = '🚪 Logout';
-        logoutBtn.className = 'btn btn-secondary';
-        logoutBtn.style.cssText = `
-            position: fixed;
-            top: 10px;
-            right: 10px;
-            z-index: 1001;
-        `;
-        logoutBtn.addEventListener('click', () => this.logout());
-        document.body.appendChild(logoutBtn);
+        // Home button with proper logout functionality (replaces both Home link and Logout button)
+        document.getElementById('homeBtn').addEventListener('click', () => {
+            this.goHome();
+        });
 
         document.getElementById('newQueueBtn').addEventListener('click', () => {
             this.generateNewQueue();
@@ -400,12 +392,22 @@ class QueueManager {
         });
     }
 
-    // Logout function
-    logout() {
-        if (confirm('Are you sure you want to logout?')) {
-            console.log('🚪 User logging out...');
+    // Home button function (combines logout functionality)
+    goHome() {
+        if (confirm('Are you sure you want to go home? This will log you out of the current session.')) {
+            console.log('🏠 User going home (logging out)...');
+            
+            // Clear all session and authentication data
             sessionStorage.clear();
-            window.location.href = '/index.html';
+            localStorage.removeItem('queueAuth');
+            
+            // Show logout message
+            this.showNotification('Logging out and returning to home...', 'info');
+            
+            // Redirect to home page after brief delay
+            setTimeout(() => {
+                window.location.href = '/index.html';
+            }, 1000);
         }
     }
 
@@ -436,6 +438,7 @@ class QueueManager {
             }
             
             this.updateDisplay();
+            this.generateQRCode();
             
             // Show success message
             this.showNotification(`Queue ${this.currentQueue} generated for ${this.queueName}!`, 'success');
@@ -446,7 +449,7 @@ class QueueManager {
             // Re-enable button
             setTimeout(() => {
                 newQueueBtn.disabled = false;
-                newQueueBtn.textContent = '🎫 New Queue';
+                newQueueBtn.textContent = 'New Queue';
             }, 500);
         }
     }
@@ -702,7 +705,7 @@ class QueueManager {
                 border-radius: 10px;
                 box-shadow: 0 4px 8px rgba(0,0,0,0.1);
             ">
-                <div style="font-size: 16px; font-weight: bold; margin-bottom: 10px; color: #0066cc;">${qrData.queueName}</div>
+                <div style="font-size: 16px; font-weight: bold; margin-bottom: 10px; color: #0066cc;">${this.queueName}</div>
                 <div style="font-size: 20px; font-weight: bold; margin-bottom: 15px; color: #0066cc;">🎫 Queue Ticket</div>
                 <div style="font-size: 36px; color: #ff4444; font-weight: bold; margin-bottom: 10px;">Queue #${qrData.queueNumber}</div>
                 <div style="font-size: 14px; margin-top: 15px; text-align: center; color: #666; line-height: 1.4;">

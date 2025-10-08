@@ -80,61 +80,137 @@ class QueueServer {
             const now = new Date();
             console.log(`🕒 Current time: ${now.toISOString()}`);
             
-            // Check if auth file exists
+            let authData = null;
+            let queueNames = [];
+            
+            // Check if auth file exists and read it
             try {
                 await fs.access(this.authFile);
-            } catch {
-                console.log('📄 No auth file found, nothing to cleanup');
-                return;
+                const authFileContent = await fs.readFile(this.authFile, 'utf8');
+                authData = JSON.parse(authFileContent);
+                
+                if (authData.queues && Object.keys(authData.queues).length > 0) {
+                    queueNames = Object.keys(authData.queues);
+                    console.log(`🔍 Found ${queueNames.length} queues in auth file:`, queueNames);
+                } else {
+                    console.log('📄 No queues found in auth file');
+                }
+            } catch (error) {
+                console.log('📄 No auth file found or error reading it');
+                authData = null;
+                queueNames = [];
             }
             
-            // Read auth data
-            const authFileContent = await fs.readFile(this.authFile, 'utf8');
-            const authData = JSON.parse(authFileContent);
-            
-            if (!authData.queues || Object.keys(authData.queues).length === 0) {
-                console.log('📄 No queues found in auth file');
-                return;
+            // Get list of backup files in the backup directory
+            let backupFiles = [];
+            try {
+                const files = await fs.readdir(this.backupDir);
+                backupFiles = files.filter(file => 
+                    file.startsWith('queue-backup-') && file.endsWith('.json')
+                );
+                console.log(`📂 Found ${backupFiles.length} backup files:`, backupFiles);
+            } catch (error) {
+                console.log('📂 No backup directory found or error reading it');
             }
-            
-            const queueNames = Object.keys(authData.queues);
-            console.log(`🔍 Found ${queueNames.length} queues to check:`, queueNames);
             
             let deletedQueues = [];
             let activeQueues = [];
+            let orphanedBackups = [];
             
-            // Check each queue for inactivity
-            for (const queueName of queueNames) {
-                const queueData = authData.queues[queueName];
-                const lastAccessed = new Date(queueData.lastAccessed);
-                const daysSinceAccess = (now - lastAccessed) / (1000 * 60 * 60 * 24);
-                
-                console.log(`📊 Queue "${queueName}": Last accessed ${daysSinceAccess.toFixed(2)} days ago`);
-                
-                if (daysSinceAccess > 1) {
-                    console.log(`🗑️ Queue "${queueName}" is inactive (${daysSinceAccess.toFixed(2)} days), marking for deletion`);
-                    deletedQueues.push(queueName);
-                } else {
-                    console.log(`✅ Queue "${queueName}" is active (${daysSinceAccess.toFixed(2)} days)`);
-                    activeQueues.push(queueName);
+            // Step 1: Check existing queues in auth file for inactivity
+            if (authData && queueNames.length > 0) {
+                for (const queueName of queueNames) {
+                    const queueData = authData.queues[queueName];
+                    const lastAccessed = new Date(queueData.lastAccessed);
+                    const daysSinceAccess = (now - lastAccessed) / (1000 * 60 * 60 * 24);
+                    
+                    console.log(`📊 Queue "${queueName}": Last accessed ${daysSinceAccess.toFixed(2)} days ago`);
+                    
+                    if (daysSinceAccess > 1) {
+                        console.log(`🗑️ Queue "${queueName}" is inactive (${daysSinceAccess.toFixed(2)} days), marking for deletion`);
+                        deletedQueues.push(queueName);
+                    } else {
+                        console.log(`✅ Queue "${queueName}" is active (${daysSinceAccess.toFixed(2)} days)`);
+                        activeQueues.push(queueName);
+                    }
                 }
             }
             
-            // Delete inactive queues
+            // Step 2: Check backup files for orphaned entries (no corresponding queue in auth file)
+            if (backupFiles.length > 0) {
+                console.log('🔍 Checking for orphaned backup files...');
+                
+                for (const backupFile of backupFiles) {
+                    // Extract queue name from backup filename: queue-backup-{queueName}.json
+                    const queueNameMatch = backupFile.match(/^queue-backup-(.+)\.json$/);
+                    if (queueNameMatch) {
+                        const backupQueueName = queueNameMatch[1];
+                        
+                        // Check if this queue exists in auth file
+                        if (!authData || !authData.queues || !authData.queues[backupQueueName]) {
+                            console.log(`🗑️ Found orphaned backup file for queue "${backupQueueName}" (not in auth file)`);
+                            orphanedBackups.push(backupQueueName);
+                        } else {
+                            console.log(`✅ Backup file for queue "${backupQueueName}" has corresponding auth entry`);
+                        }
+                    } else {
+                        console.log(`⚠️ Invalid backup filename format: ${backupFile}`);
+                    }
+                }
+            }
+            
+            // Step 3: Delete inactive queues (from auth file)
             if (deletedQueues.length > 0) {
                 console.log(`🗑️ Deleting ${deletedQueues.length} inactive queues:`, deletedQueues);
                 
                 for (const queueName of deletedQueues) {
                     await this.deleteInactiveQueue(queueName);
                 }
+            }
+            
+            // Step 4: Delete orphaned backup files
+            if (orphanedBackups.length > 0) {
+                console.log(`🗑️ Deleting ${orphanedBackups.length} orphaned backup files:`, orphanedBackups);
                 
-                console.log(`✅ Cleanup completed: ${deletedQueues.length} queues deleted, ${activeQueues.length} queues remain active`);
+                for (const queueName of orphanedBackups) {
+                    await this.deleteOrphanedBackupFile(queueName);
+                }
+            }
+            
+            // Summary
+            const totalDeleted = deletedQueues.length + orphanedBackups.length;
+            if (totalDeleted > 0) {
+                console.log(`✅ Cleanup completed:`);
+                console.log(`   - ${deletedQueues.length} inactive queues deleted`);
+                console.log(`   - ${orphanedBackups.length} orphaned backup files deleted`);
+                console.log(`   - ${activeQueues.length} queues remain active`);
             } else {
-                console.log(`✅ Cleanup completed: All ${activeQueues.length} queues are active, no deletion needed`);
+                console.log(`✅ Cleanup completed: All ${activeQueues.length} queues are active, no cleanup needed`);
             }
             
         } catch (error) {
             console.error('❌ Error during cleanup:', error);
+        }
+    }
+
+    // Delete an orphaned backup file (backup exists but no auth entry)
+    async deleteOrphanedBackupFile(queueName) {
+        try {
+            console.log(`🗑️ Deleting orphaned backup file for queue: "${queueName}"`);
+            
+            const filename = `queue-backup-${queueName}.json`;
+            const filepath = path.join(this.backupDir, filename);
+            
+            try {
+                await fs.access(filepath);
+                await fs.unlink(filepath);
+                console.log(`✅ Orphaned backup file deleted: ${filename}`);
+            } catch {
+                console.log(`📄 Orphaned backup file not found (already deleted): ${filename}`);
+            }
+            
+        } catch (error) {
+            console.error(`❌ Error deleting orphaned backup file for ${queueName}:`, error);
         }
     }
 
@@ -230,13 +306,16 @@ class QueueServer {
                 nextCheck: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
                 totalQueues: 0,
                 activeQueues: 0,
-                inactiveQueues: 0
+                inactiveQueues: 0,
+                totalBackupFiles: 0,
+                orphanedBackupFiles: 0
             };
 
             // Get current queue statistics
+            let authData = null;
             try {
                 const authFileContent = await fs.readFile(this.authFile, 'utf8');
-                const authData = JSON.parse(authFileContent);
+                authData = JSON.parse(authFileContent);
                 
                 if (authData.queues) {
                     const now = new Date();
@@ -255,6 +334,33 @@ class QueueServer {
                 }
             } catch {
                 // Auth file doesn't exist or is invalid
+            }
+
+            // Get backup files statistics
+            try {
+                const files = await fs.readdir(this.backupDir);
+                const backupFiles = files.filter(file => 
+                    file.startsWith('queue-backup-') && file.endsWith('.json')
+                );
+                status.totalBackupFiles = backupFiles.length;
+                
+                // Count orphaned backup files
+                if (authData && authData.queues) {
+                    for (const backupFile of backupFiles) {
+                        const queueNameMatch = backupFile.match(/^queue-backup-(.+)\.json$/);
+                        if (queueNameMatch) {
+                            const backupQueueName = queueNameMatch[1];
+                            if (!authData.queues[backupQueueName]) {
+                                status.orphanedBackupFiles++;
+                            }
+                        }
+                    }
+                } else {
+                    // If no auth file exists, all backup files are orphaned
+                    status.orphanedBackupFiles = status.totalBackupFiles;
+                }
+            } catch {
+                // Backup directory doesn't exist
             }
 
             res.writeHead(200, { 'Content-Type': 'application/json' });
