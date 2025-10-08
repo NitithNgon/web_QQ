@@ -44,6 +44,7 @@ class SimpleQueueBackup {
             totalQueues: 0,
             callingQueue: 0,
             lastUpdated: new Date().toISOString(),
+            lastCalled: "-",
             queues: []
         };
     }
@@ -60,6 +61,31 @@ class SimpleQueueBackup {
     // Save backup to both server and localStorage
     async saveBackup() {
         this.data.lastUpdated = new Date().toISOString();
+        this.data.queueName = this.queueName;
+        const jsonData = JSON.stringify(this.data, null, 2);
+
+        // Always save to localStorage with queue-specific key
+        localStorage.setItem(`queueBackup_${this.queueName}`, jsonData);
+
+        // Try to save to server
+        try {
+            await fetch('/api/save-queue-backup', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    queueName: this.queueName,
+                    data: this.data
+                })
+            });
+            console.log(`Backup saved to server for queue: ${this.queueName}`);
+        } catch (error) {
+            console.log('Server save failed, using localStorage only');
+        }
+    }
+
+    async saveCallBackup() {
+        this.data.lastUpdated = new Date().toISOString();
+        this.data.lastCalled = new Date().toISOString();
         this.data.queueName = this.queueName;
         const jsonData = JSON.stringify(this.data, null, 2);
 
@@ -108,7 +134,7 @@ class SimpleQueueBackup {
             this.data.totalQueues = this.data.queues.filter(q => !q.served).length;
         }
 
-        await this.saveBackup();
+        await this.saveCallBackup();
         return queue;
     }
 
@@ -125,7 +151,8 @@ class SimpleQueueBackup {
             currentQueue: this.data.currentQueue,
             totalQueues: this.data.totalQueues,
             callingQueue: this.data.callingQueue,
-            lastUpdated: this.data.lastUpdated
+            lastUpdated: this.data.lastUpdated,
+            lastCalled: this.data.lastCalled || null
         };
     }
 

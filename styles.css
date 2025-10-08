@@ -138,12 +138,12 @@ h3 {
 }
 
 .queue-number {
-    font-size: 8rem;
+    font-size: 3rem;
     font-weight: bold;
     color: #4CAF50;
     text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.1);
     margin: 20px 0;
-    border: 5px solid #4CAF50;
+    border: 3.5px solid #4CAF50;
     border-radius: 20px;
     padding: 40px;
     background: linear-gradient(45deg, #f8f9fa, #e9ecef);
@@ -215,7 +215,7 @@ h3 {
     }
     
     .queue-number {
-        font-size: 4rem;
+        font-size: 2.5rem;
         padding: 20px;
     }
     

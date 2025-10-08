@@ -438,7 +438,6 @@ class QueueManager {
             }
             
             this.updateDisplay();
-            this.generateQRCode();
             
             // Show success message
             this.showNotification(`Queue ${this.currentQueue} generated for ${this.queueName}!`, 'success');
@@ -639,7 +638,7 @@ class QueueManager {
             timestamp: this.lastUpdated,
             url: window.location.origin + '/queue-display.html?queue=' + this.encryptUnicode(this.queueName) + '&number=' + this.encryptUnicode(this.currentQueue),
         };
-        
+        console.log('Generating QR code with data:', qrData);
         // Check if QRCode library is available
         if (typeof QRCode === 'undefined') {
             console.warn('QRCode library not loaded, using fallback');

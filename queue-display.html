@@ -9,23 +9,15 @@
 <body>
     <div class="container">
         <div class="queue-display">
-            <h1 class="queue-name" id="queueName">Test Queue</h1>
-            <h1>Current Queue</h1>
+            <h1 class="queue-name" id="queueName">Loading...</h1>
+            <h3>Currently Calling Number:</h3>
             <div class="queue-number" id="displayQueueNumber">0</div>
-            <div class="queue-status" id="queueStatus">No active queue</div>
             
-            <div class="queue-info-display">
-                <p>Total Queues: <span id="displayTotalQueues">0</span></p>
-                <p>Queues Served: <span id="displayServedQueues">0</span></p>
-                <p>Remaining: <span id="displayRemainingQueues">0</span></p>
-            </div>
+            <!-- User-specific status will be inserted here by JavaScript -->
 
-            <button id="refreshBtn" class="btn btn-secondary">Refresh</button>
+            <button id="refreshBtn" class="btn btn-secondary">🔄 Refresh</button>
         </div>
 
-        <div class="navigation">
-            <a href="index.html" class="nav-btn">Home</a>
-        </div>
     </div>
 
     <script src="simple-backup.js"></script>
