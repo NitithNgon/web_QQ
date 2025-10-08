@@ -77,10 +77,6 @@ class QueueLogin {
             this.handleLogin();
         });
 
-        document.getElementById('viewDisplayBtn').addEventListener('click', () => {
-            window.location.href = 'queue-display.html';
-        });
-
         // Clear any previous error messages when user types
         document.getElementById('queueName').addEventListener('input', () => {
             this.hideMessage();

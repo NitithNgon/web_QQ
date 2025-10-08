@@ -628,7 +628,12 @@ class QueueManager {
     generateQRCode() {
         const qrSection = document.getElementById('qrSection');
         const qrCodeDiv = document.getElementById('qrcode');
+        const linkDiv = document.getElementById('link');
         
+        // Display link for manual access
+        this.displayUrl = window.location.origin + '/queue-display.html?queue=' + this.encryptUnicode(this.queueName) + '&number=' + this.encryptUnicode(this.currentQueue);
+        linkDiv.innerHTML = `<a href="${this.displayUrl}" target="_blank" style="word-break: break-all;">QR Code</a>`;
+
         // Clear previous QR code
         qrCodeDiv.innerHTML = '';
         

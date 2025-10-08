@@ -61,6 +61,9 @@ class SimpleQueueBackup {
     // Save backup to both server and localStorage
     async saveBackup() {
         this.data.lastUpdated = new Date().toISOString();
+        if (!this.data.lastCalled) {
+            this.data.lastCalled = "-";
+        }
         this.data.queueName = this.queueName;
         const jsonData = JSON.stringify(this.data, null, 2);
 

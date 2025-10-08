@@ -151,10 +151,6 @@ class QueueDisplay {
             </div>
         `;
         
-        // Redirect after 3 seconds
-        setTimeout(() => {
-            window.location.href = '/index.html';
-        }, 3000);
     }
 
     // Initialize backup system and load data
@@ -470,25 +466,43 @@ class QueueDisplay {
     }
 
     // Refresh data manually
-    refreshData() {
+    async refreshData() {
         if (!this.authenticated) return;
-        
-        this.loadQueueData();
-        this.updateDisplay();
-        this.showNotification('Data refreshed!', 'success');
+            try {
+                this.backup = new SimpleQueueBackup(this.queueName);
+                await this.backup.init();
+                this.loadQueueData();
+                this.initializeEventListeners();
+                this.updateDisplay();
+                this.showNotification('Data refreshed!', 'success');
+            } catch (error) {
+                console.error('❌ Backup load failed:', error);
+                this.initializeEventListeners();
+                this.updateDisplay();
+                this.startAutoRefresh();
+            }
     }
 
     // Start auto-refresh every 5 seconds
     startAutoRefresh() {
         if (!this.authenticated) return;
         
-        setInterval(() => {
-            this.loadQueueData();
-            this.updateDisplay();
-            
-            // Update time ago display every refresh
-            this.updateLastCalledTimeDisplay();
-        }, 5000);
+        setInterval(async () => {
+             try {
+                this.backup = new SimpleQueueBackup(this.queueName);
+                await this.backup.init();
+                this.loadQueueData();
+                this.initializeEventListeners();
+                this.updateDisplay();
+                this.updateLastCalledTimeDisplay();
+            } catch (error) {
+                console.error('❌ Backup AutoLoad failed:', error);
+                this.initializeEventListeners();
+                this.updateDisplay();
+                this.updateLastCalledTimeDisplay();
+                this.startAutoRefresh();
+            }
+        }, 60 * 1000);
     }
 
     // Show notification
